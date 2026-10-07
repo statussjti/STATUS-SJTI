@@ -51,7 +51,12 @@ try {
 }
 
 // Inicializar Resend para correos
-const resend = new Resend(process.env.RESEND_API_KEY);
+let resend = null;
+if (process.env.RESEND_API_KEY) {
+    resend = new Resend(process.env.RESEND_API_KEY);
+} else {
+    console.warn("⚠️ Resend API Key no configurada, el servicio de correos estará inactivo.");
+}
 
 // --- RUTAS BÁSICAS DE CONFIGURACIÓN ---
 app.get('/api/config', (req, res) => {
