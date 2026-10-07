@@ -17,57 +17,43 @@ app.use(express.json());
 // Servir archivos estáticos desde la misma carpeta del proyecto
 app.use(express.static(__dirname));
 
-// --- INICIALIZACIÓN AUTOMÁTICA DE FIREBASE (LOCAL Y NUBE) ---
+// --- INICIALIZACIÓN DIRECTA DE FIREBASE ---
 let db = null;
 try {
-    let serviceAccount = null;
-
-    // 1. Si estamos en Render o hay variable de entorno con el JSON
-    if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-        console.log("🔓 Usando credenciales de Firebase desde Variable de Entorno.");
-    } else {
-        // 2. Búsqueda automática del archivo JSON de Firebase en la carpeta local
-        const files = fs.readdirSync(__dirname);
-        const serviceAccountFile = files.find(file => file.endsWith('.json') && (file.includes('firebase') || file.includes('adminsdk')));
-
-        if (serviceAccountFile) {
-            serviceAccount = require(path.join(__dirname, serviceAccountFile));
-            console.log(`📁 Usando credenciales locales de Firebase: ${serviceAccountFile}`);
-        }
-    }
-
-    if (serviceAccount) {
+    const serviceAccount = require('./sjti-70001-firebase-adminsdk-fbsvc-67d2fe1b35.json');
+    
+    if (serviceAccount && serviceAccount.project_id) {
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount)
         });
         db = admin.firestore();
-        console.log("✅ Firebase Admin inicializado exitosamente. Base de datos conectada.");
+        console.log("✅ Firebase Admin inicializado correctamente con la base de datos.");
     } else {
-        console.warn("⚠️ No se encontró credencial de Firebase (ni archivo JSON ni variable de entorno).");
+        console.error("❌ El archivo JSON de Firebase está vacío o no tiene el formato correcto.");
     }
 } catch (error) {
     console.error("❌ Error al inicializar Firebase Admin:", error.message);
 }
 
-// Inicializar Resend para correos
+// Inicializar Resend de forma segura (evita que falle si falta la variable de entorno)
 let resend = null;
 if (process.env.RESEND_API_KEY) {
     resend = new Resend(process.env.RESEND_API_KEY);
+    console.log("✅ Resend inicializado correctamente.");
 } else {
-    console.warn("⚠️ Resend API Key no configurada, el servicio de correos estará inactivo.");
+    console.warn("⚠️ Resend API Key no configurada, servicio de correo deshabilitado.");
 }
 
 // --- RUTAS BÁSICAS DE CONFIGURACIÓN ---
 app.get('/api/config', (req, res) => {
     res.json({
         success: true,
-        projectId: process.env.FIREBASE_PROJECT_ID || "statusylogistica",
+        projectId: process.env.FIREBASE_PROJECT_ID || "sjti-70001",
         cloudConnected: db !== null
     });
 });
 
-// --- ENDPOINT DE AUTENTICACIÓN (LOGIN DIRECTO EN FIREBASE) ---
+// --- ENDPOINT DE AUTENTICACIÓN (LOGIN) ---
 app.post('/api/login', async (req, res) => {
     try {
         const { usuario, password } = req.body;
@@ -80,20 +66,15 @@ app.post('/api/login', async (req, res) => {
         const usuarioTrim = usuario.trim().toLowerCase();
 
         if (db) {
-            try {
-                const snapshot = await db.collection('usuarios').get();
-                snapshot.forEach(doc => {
-                    const data = doc.data();
-                    if (data.usuario && data.usuario.trim().toLowerCase() === usuarioTrim && data.password === password) {
-                        usuarioEncontrado = { id: doc.id, ...data };
-                    }
-                });
-            } catch (dbError) {
-                console.error("Error al consultar Firestore en login:", dbError.message);
-            }
+            const snapshot = await db.collection('usuarios').get();
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.usuario && data.usuario.trim().toLowerCase() === usuarioTrim && data.password === password) {
+                    usuarioEncontrado = { id: doc.id, ...data };
+                }
+            });
         }
 
-        // Respaldo por defecto si no hay registros o para pruebas directas
         if (!usuarioEncontrado) {
             if (usuarioTrim === 'admin' && password === 'admin') {
                 usuarioEncontrado = { usuario: 'admin', nombre: 'Administrador Principal', rol: 'Administrador' };
@@ -119,17 +100,12 @@ app.get('/api/usuarios', async (req, res) => {
         let usuarios = [];
         
         if (db) {
-            try {
-                const snapshot = await db.collection('usuarios').get();
-                snapshot.forEach(doc => {
-                    usuarios.push({ id: doc.id, ...doc.data() });
-                });
-            } catch (dbError) {
-                console.error("Error al obtener usuarios de Firestore:", dbError.message);
-            }
+            const snapshot = await db.collection('usuarios').get();
+            snapshot.forEach(doc => {
+                usuarios.push({ id: doc.id, ...doc.data() });
+            });
         }
         
-        // Si la tabla está vacía, mostrar por defecto el admin local para referencia
         if (usuarios.length === 0) {
             usuarios.push({ 
                 id: 'local-admin-1', 
